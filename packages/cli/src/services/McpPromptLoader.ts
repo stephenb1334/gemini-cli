@@ -6,10 +6,8 @@
 
 import {
   Config,
-  connectToMcpServer,
   getErrorMessage,
   getMCPServerPrompts,
-  invokeMcpPrompt,
 } from '@google/gemini-cli-core';
 import {
   CommandContext,
@@ -34,10 +32,10 @@ export class McpPromptLoader implements ICommandLoader {
    * @param _signal An AbortSignal (unused for this synchronous loader).
    * @returns A promise that resolves to an array of loaded SlashCommands.
    */
-  async loadCommands(_signal: AbortSignal): Promise<SlashCommand[]> {
+  loadCommands(_signal: AbortSignal): Promise<SlashCommand[]> {
     const promptCommands: SlashCommand[] = [];
     if (!this.config) {
-      return [];
+      return Promise.resolve([]);
     }
     const mcpServers = this.config.getMcpServers() || {};
     for (const serverName in mcpServers) {
@@ -63,7 +61,10 @@ export class McpPromptLoader implements ICommandLoader {
                 }
 
                 let helpMessage = `Arguments for "${prompt.name}":\n\n`;
-                helpMessage += `You can provide arguments by name (e.g., --argName="value") or by position.\n\n`;
+                if (prompt.arguments && prompt.arguments.length > 0) {
+                  helpMessage += `You can provide arguments by name (e.g., --argName="value") or by position.\n\n`;
+                  helpMessage += `e.g., ${prompt.name} ${prompt.arguments?.map((_) => `"foo"`)} is equivalent to ${prompt.name} ${prompt.arguments?.map((arg) => `--${arg.name}="foo"`)}\n\n`;
+                }
                 for (const arg of prompt.arguments) {
                   helpMessage += `  --${arg.name}\n`;
                   if (arg.description) {
@@ -112,17 +113,7 @@ export class McpPromptLoader implements ICommandLoader {
                   content: `MCP server config not found for '${serverName}'.`,
                 };
               }
-              const mcpClient = await connectToMcpServer(
-                serverName,
-                mcpServerConfig,
-                this.config.getDebugMode(),
-              );
-              const result = await invokeMcpPrompt(
-                serverName,
-                mcpClient,
-                prompt.name,
-                promptInputs,
-              );
+              const result = await prompt.invoke(promptInputs);
 
               if (result.error) {
                 return {
@@ -165,7 +156,7 @@ export class McpPromptLoader implements ICommandLoader {
 
             for (const arg of prompt.arguments) {
               if (!usedArgNames.has(arg.name)) {
-                suggestions.push(`--${arg.name}=`);
+                suggestions.push(`--${arg.name}=""`);
               }
             }
 
@@ -175,7 +166,7 @@ export class McpPromptLoader implements ICommandLoader {
         promptCommands.push(newPromptCommand);
       }
     }
-    return promptCommands;
+    return Promise.resolve(promptCommands);
   }
 
   private parseArgs(
